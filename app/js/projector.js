@@ -65,6 +65,15 @@ export class Projector {
     localStorage.setItem('motem_proj_norm', JSON.stringify(this.norm));
   }
 
+  static async fromUrl(base, norm, zDim) {
+    try {
+      const p = new Projector(zDim);
+      p.mlp = await tf.loadLayersModel(base + 'motem-proj.json');
+      p.norm = norm;
+      return p;
+    } catch (e) { return null; }
+  }
+
   static async load(zDim) {
     const norm = JSON.parse(localStorage.getItem('motem_proj_norm') || 'null');
     if (!norm) return null;

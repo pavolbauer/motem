@@ -150,7 +150,7 @@
     <canvas id="embedCanvas"></canvas>
 
     <div id="embedUI">
-      <button class="btn" id="recBtn" disabled>● REC</button>
+      <button class="btn" id="clearBtn" disabled>⟲ RESET</button>
       <input id="sessName" placeholder="session name">
       <button class="btn" id="saveBtn" disabled>SAVE</button>
     </div>
@@ -173,6 +173,15 @@
         <span id="calibCount">0</span><span class="progLbl">windows</span>
       </div>
       <div class="row"><button class="btn primary" id="trainBtn" disabled>TRAIN MODEL</button></div>
+      <div class="row">
+        <button class="btn" id="demoBtn">SKIP — DEMO SPACE</button>
+        <button class="btn" id="exportBtn" disabled>EXPORT WEIGHTS</button>
+      </div>
+      <p><b>Demo space</b>: start instantly with a deterministic random
+        projection (same space on every device, no training) — but decoded
+        replays are meaningless until a real model is trained.
+        <b>Export</b> downloads the trained weights; commit them to
+        <b>model/</b> in the repo and every visitor starts in your space.</p>
       <div class="progLbl" id="p1Lbl">1 · motion VAE</div><div class="prog"><i id="p1"></i></div>
       <div class="progLbl" id="p2Lbl">2 · UMAP fit</div><div class="prog"><i id="p2"></i></div>
       <div class="progLbl" id="p3Lbl">3 · parametric projector</div><div class="prog"><i id="p3"></i></div>
@@ -497,6 +506,43 @@ class MotionVAE {
       return vae;
     } catch (e) { return null; }
   }
+
+  // pretrained weights served next to the app (see EXPORT WEIGHTS)
+  static async loadFromUrl(base) {
+    try {
+      const res = await fetch(base + 'motem-meta.json', { cache: 'no-store' });
+      if (!res.ok) return null;
+      const meta = await res.json();
+      const v = meta.vae;
+      const vae = new MotionVAE({ win: v.win, dim: v.dim, zDim: v.z, arch: v.arch });
+      vae.enc = await tf.loadLayersModel(base + 'motem-enc.json');
+      vae.dec = await tf.loadLayersModel(base + 'motem-dec.json');
+      return { vae, meta };
+    } catch (e) { return null; }
+  }
+}
+
+// Deterministic weight seeding for the no-training demo space: same seed →
+// identical weights on every device, so demo embeddings stay comparable.
+// Kernels get seeded uniform values (±gain/√fanIn), biases zero.
+function seedWeights(model, seed, gain = 1.6) {
+  let s = seed >>> 0;
+  const rnd = () => {                    // mulberry32
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const ws = model.getWeights().map(w => {
+    if (w.shape.length === 1) return tf.zeros(w.shape);
+    const fanIn = w.shape.slice(0, -1).reduce((a, b) => a * b, 1);
+    const lim = gain / Math.sqrt(fanIn);
+    const vals = new Float32Array(w.size);
+    for (let i = 0; i < vals.length; i++) vals[i] = (rnd() * 2 - 1) * lim;
+    return tf.tensor(vals, w.shape);
+  });
+  model.setWeights(ws);
+  ws.forEach(w => w.dispose());
 }
 
 /* ================= projector.js ================= */
@@ -565,6 +611,15 @@ class Projector {
   async save() {
     await this.mlp.save('indexeddb://motem-proj');
     localStorage.setItem('motem_proj_norm', JSON.stringify(this.norm));
+  }
+
+  static async fromUrl(base, norm, zDim) {
+    try {
+      const p = new Projector(zDim);
+      p.mlp = await tf.loadLayersModel(base + 'motem-proj.json');
+      p.norm = norm;
+      return p;
+    } catch (e) { return null; }
   }
 
   static async load(zDim) {
@@ -894,7 +949,6 @@ const state = {
   modelReady: false,
   modelId: null,
   collecting: false,        // calibration data recording
-  recording: false,         // session recording
   calibWindows: [],
   sessLatents: [],          // parallel to view.points while recording
   compare: null,            // {a, b, an} when a comparison is shown
@@ -931,10 +985,10 @@ pose.onPose = (lm, t) => {
     const z = vae.encode(buf.snapshot());
     const [x, y] = proj.project(z);
     view.current = [x, y];
-    if (state.recording) {
-      view.add(x, y, performance.now());
-      state.sessLatents.push(z);
-    }
+    // the whole trace since going live (or last RESET) stays on the map
+    view.add(x, y, performance.now());
+    state.sessLatents.push(z);
+    if (view.points.length % 25 === 0) updateStatus();
   }
 };
 
@@ -981,27 +1035,21 @@ function setMode(m) {
 function updateStatus() {
   if (state.training) return; // training progress owns the status line
   if (!state.modelReady) setStatus('no model yet — CALIBRATE first');
-  else if (state.recording) setStatus(`recording · ${view.points.length} pts`);
-  else setStatus(`model ready (${vae.arch}, z=${vae.z}) — REC to record a session`);
-  $('recBtn').disabled = !state.modelReady;
-  $('saveBtn').disabled = !(state.modelReady && !state.recording && view.points.length > 0);
+  else setStatus(`tracing · ${view.points.length} pts (${vae.arch}, z=${vae.z})`);
+  $('clearBtn').disabled = !state.modelReady;
+  $('saveBtn').disabled = !(state.modelReady && view.points.length > 0);
+  $('exportBtn').disabled = !state.modelReady;
 }
 
-/* ---------------- live: record & save sessions ---------------- */
+/* ---------------- live: trace & save sessions ---------------- */
 
-$('recBtn').onclick = () => {
-  state.recording = !state.recording;
-  if (state.recording) {
-    view.reset();
-    state.sessLatents = [];
-    $('recBtn').textContent = '■ STOP';
-    $('recBtn').classList.add('rec');
-  } else {
-    $('recBtn').textContent = '● REC';
-    $('recBtn').classList.remove('rec');
-  }
+function resetTrace() {
+  view.reset();
+  state.sessLatents = [];
   updateStatus();
-};
+}
+
+$('clearBtn').onclick = resetTrace;
 
 $('saveBtn').onclick = async () => {
   const name = $('sessName').value.trim() ||
@@ -1066,14 +1114,14 @@ $('trainBtn').onclick = async () => {
 
     await vae.save();
     await proj.save();
-    state.modelId = Date.now();
+    state.modelId = String(Date.now());
     localStorage.setItem('motem_model_id', state.modelId);
     state.modelReady = true;
     state.calibWindows = [];
     $('calibCount').textContent = '0';
     $('calibMsg').textContent = 'Done — space is frozen. Go LIVE and record sessions.';
     toast('model trained & saved');
-    view.reset();
+    resetTrace();
     setMode('live');
   } catch (e) {
     console.error(e);
@@ -1082,6 +1130,53 @@ $('trainBtn').onclick = async () => {
     state.training = false;
     updateStatus();
   }
+};
+
+/* ---------------- demo space (no training) ---------------- */
+
+$('demoBtn').onclick = async () => {
+  if (state.training) return;
+  vae = new MotionVAE({ win: WIN, dim: FEAT_DIM, zDim: 16, arch: 'conv' });
+  vae.build();
+  seedWeights(vae.enc, 11);
+  seedWeights(vae.dec, 22);
+  proj = new Projector(vae.z);
+  proj.mlp = tf.sequential({
+    layers: [
+      tf.layers.dense({ inputShape: [vae.z], units: 32, activation: 'tanh' }),
+      tf.layers.dense({ units: 2, activation: 'tanh' }),
+    ],
+  });
+  seedWeights(proj.mlp, 33, 2.2);
+  proj.norm = { cx: 0, cy: 0, sx: 1, sy: 1 };
+  await vae.save();
+  await proj.save();
+  state.modelId = 'demo-v1';   // fixed id: demo sessions comparable everywhere
+  localStorage.setItem('motem_model_id', state.modelId);
+  state.modelReady = true;
+  resetTrace();
+  toast('demo space ready (random projection, no training) — replays are meaningless until you train');
+  setMode('live');
+};
+
+/* ---------------- export trained weights for the repo ---------------- */
+
+$('exportBtn').onclick = async () => {
+  if (!state.modelReady) return;
+  await vae.enc.save('downloads://motem-enc');
+  await vae.dec.save('downloads://motem-dec');
+  await proj.mlp.save('downloads://motem-proj');
+  const meta = {
+    modelId: state.modelId,
+    vae: { win: vae.win, dim: vae.dim, z: vae.z, arch: vae.arch },
+    projNorm: proj.norm,
+  };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(meta, null, 2)],
+    { type: 'application/json' }));
+  a.download = 'motem-meta.json';
+  a.click();
+  toast('7 files downloaded — put them in model/ at the repo root and push');
 };
 
 /* ---------------- compare ---------------- */
@@ -1109,7 +1204,7 @@ $('cmpBtn').onclick = async () => {
   if (!a || !b) { toast('pick two sessions'); return; }
   const an = analyze(a, b);
   state.compare = { a, b, an };
-  const warn = (a.modelId !== state.modelId || b.modelId !== state.modelId)
+  const warn = (String(a.modelId) !== String(state.modelId) || String(b.modelId) !== String(state.modelId))
     ? '<br>⚠ recorded with a different model — space may not match' : '';
   $('cmpStats').innerHTML =
     `<span class="both">■ overlap ${(an.jaccard * 100).toFixed(0)}%</span> (Jaccard)<br>` +
@@ -1147,9 +1242,22 @@ $('startBtn').onclick = async () => {
     vae = await MotionVAE.load();
     if (vae) proj = await Projector.load(vae.z);
     if (vae && proj) {
-      state.modelReady = true;
-      state.modelId = +localStorage.getItem('motem_model_id') || Date.now();
+      state.modelId = localStorage.getItem('motem_model_id') || String(Date.now());
+    } else {
+      // no local model → try pretrained weights shipped next to the app
+      bs.textContent = 'looking for pretrained space…';
+      const pre = await MotionVAE.loadFromUrl('model/');
+      if (pre) {
+        const p = await Projector.fromUrl('model/', pre.meta.projNorm, pre.vae.z);
+        if (p) {
+          vae = pre.vae; proj = p;
+          state.modelId = String(pre.meta.modelId);
+          toast('pretrained space loaded — no calibration needed');
+        }
+      }
     }
+    state.modelReady = !!(vae && proj);
+    if (state.modelReady) resetTrace();
 
     try { await navigator.wakeLock.request('screen'); } catch (e) {}
     pose.start();

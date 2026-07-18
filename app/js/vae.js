@@ -126,4 +126,41 @@ export class MotionVAE {
       return vae;
     } catch (e) { return null; }
   }
+
+  // pretrained weights served next to the app (see EXPORT WEIGHTS)
+  static async loadFromUrl(base) {
+    try {
+      const res = await fetch(base + 'motem-meta.json', { cache: 'no-store' });
+      if (!res.ok) return null;
+      const meta = await res.json();
+      const v = meta.vae;
+      const vae = new MotionVAE({ win: v.win, dim: v.dim, zDim: v.z, arch: v.arch });
+      vae.enc = await tf.loadLayersModel(base + 'motem-enc.json');
+      vae.dec = await tf.loadLayersModel(base + 'motem-dec.json');
+      return { vae, meta };
+    } catch (e) { return null; }
+  }
+}
+
+// Deterministic weight seeding for the no-training demo space: same seed →
+// identical weights on every device, so demo embeddings stay comparable.
+// Kernels get seeded uniform values (±gain/√fanIn), biases zero.
+export function seedWeights(model, seed, gain = 1.6) {
+  let s = seed >>> 0;
+  const rnd = () => {                    // mulberry32
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const ws = model.getWeights().map(w => {
+    if (w.shape.length === 1) return tf.zeros(w.shape);
+    const fanIn = w.shape.slice(0, -1).reduce((a, b) => a * b, 1);
+    const lim = gain / Math.sqrt(fanIn);
+    const vals = new Float32Array(w.size);
+    for (let i = 0; i < vals.length; i++) vals[i] = (rnd() * 2 - 1) * lim;
+    return tf.tensor(vals, w.shape);
+  });
+  model.setWeights(ws);
+  ws.forEach(w => w.dispose());
 }

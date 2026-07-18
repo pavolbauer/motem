@@ -150,7 +150,7 @@
     <canvas id="embedCanvas"></canvas>
 
     <div id="embedUI">
-      <button class="btn" id="recBtn" disabled>● REC</button>
+      <button class="btn" id="clearBtn" disabled>⟲ RESET</button>
       <input id="sessName" placeholder="session name">
       <button class="btn" id="saveBtn" disabled>SAVE</button>
     </div>
@@ -173,6 +173,15 @@
         <span id="calibCount">0</span><span class="progLbl">windows</span>
       </div>
       <div class="row"><button class="btn primary" id="trainBtn" disabled>TRAIN MODEL</button></div>
+      <div class="row">
+        <button class="btn" id="demoBtn">SKIP — DEMO SPACE</button>
+        <button class="btn" id="exportBtn" disabled>EXPORT WEIGHTS</button>
+      </div>
+      <p><b>Demo space</b>: start instantly with a deterministic random
+        projection (same space on every device, no training) — but decoded
+        replays are meaningless until a real model is trained.
+        <b>Export</b> downloads the trained weights; commit them to
+        <b>model/</b> in the repo and every visitor starts in your space.</p>
       <div class="progLbl" id="p1Lbl">1 · motion VAE</div><div class="prog"><i id="p1"></i></div>
       <div class="progLbl" id="p2Lbl">2 · UMAP fit</div><div class="prog"><i id="p2"></i></div>
       <div class="progLbl" id="p3Lbl">3 · parametric projector</div><div class="prog"><i id="p3"></i></div>

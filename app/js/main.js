@@ -1,6 +1,6 @@
 import { PoseEngine } from './pose.js';
 import { poseToFeatures, WindowBuffer, WIN, FEAT_DIM, SAMPLE_MS } from './features.js';
-import { MotionVAE } from './vae.js';
+import { MotionVAE, seedWeights } from './vae.js';
 import { Projector } from './projector.js';
 import { EmbedView } from './scatter.js';
 import { Replayer } from './replay.js';
@@ -22,7 +22,6 @@ const state = {
   modelReady: false,
   modelId: null,
   collecting: false,        // calibration data recording
-  recording: false,         // session recording
   calibWindows: [],
   sessLatents: [],          // parallel to view.points while recording
   compare: null,            // {a, b, an} when a comparison is shown
@@ -59,10 +58,10 @@ pose.onPose = (lm, t) => {
     const z = vae.encode(buf.snapshot());
     const [x, y] = proj.project(z);
     view.current = [x, y];
-    if (state.recording) {
-      view.add(x, y, performance.now());
-      state.sessLatents.push(z);
-    }
+    // the whole trace since going live (or last RESET) stays on the map
+    view.add(x, y, performance.now());
+    state.sessLatents.push(z);
+    if (view.points.length % 25 === 0) updateStatus();
   }
 };
 
@@ -109,27 +108,21 @@ function setMode(m) {
 function updateStatus() {
   if (state.training) return; // training progress owns the status line
   if (!state.modelReady) setStatus('no model yet — CALIBRATE first');
-  else if (state.recording) setStatus(`recording · ${view.points.length} pts`);
-  else setStatus(`model ready (${vae.arch}, z=${vae.z}) — REC to record a session`);
-  $('recBtn').disabled = !state.modelReady;
-  $('saveBtn').disabled = !(state.modelReady && !state.recording && view.points.length > 0);
+  else setStatus(`tracing · ${view.points.length} pts (${vae.arch}, z=${vae.z})`);
+  $('clearBtn').disabled = !state.modelReady;
+  $('saveBtn').disabled = !(state.modelReady && view.points.length > 0);
+  $('exportBtn').disabled = !state.modelReady;
 }
 
-/* ---------------- live: record & save sessions ---------------- */
+/* ---------------- live: trace & save sessions ---------------- */
 
-$('recBtn').onclick = () => {
-  state.recording = !state.recording;
-  if (state.recording) {
-    view.reset();
-    state.sessLatents = [];
-    $('recBtn').textContent = '■ STOP';
-    $('recBtn').classList.add('rec');
-  } else {
-    $('recBtn').textContent = '● REC';
-    $('recBtn').classList.remove('rec');
-  }
+function resetTrace() {
+  view.reset();
+  state.sessLatents = [];
   updateStatus();
-};
+}
+
+$('clearBtn').onclick = resetTrace;
 
 $('saveBtn').onclick = async () => {
   const name = $('sessName').value.trim() ||
@@ -194,14 +187,14 @@ $('trainBtn').onclick = async () => {
 
     await vae.save();
     await proj.save();
-    state.modelId = Date.now();
+    state.modelId = String(Date.now());
     localStorage.setItem('motem_model_id', state.modelId);
     state.modelReady = true;
     state.calibWindows = [];
     $('calibCount').textContent = '0';
     $('calibMsg').textContent = 'Done — space is frozen. Go LIVE and record sessions.';
     toast('model trained & saved');
-    view.reset();
+    resetTrace();
     setMode('live');
   } catch (e) {
     console.error(e);
@@ -210,6 +203,53 @@ $('trainBtn').onclick = async () => {
     state.training = false;
     updateStatus();
   }
+};
+
+/* ---------------- demo space (no training) ---------------- */
+
+$('demoBtn').onclick = async () => {
+  if (state.training) return;
+  vae = new MotionVAE({ win: WIN, dim: FEAT_DIM, zDim: 16, arch: 'conv' });
+  vae.build();
+  seedWeights(vae.enc, 11);
+  seedWeights(vae.dec, 22);
+  proj = new Projector(vae.z);
+  proj.mlp = tf.sequential({
+    layers: [
+      tf.layers.dense({ inputShape: [vae.z], units: 32, activation: 'tanh' }),
+      tf.layers.dense({ units: 2, activation: 'tanh' }),
+    ],
+  });
+  seedWeights(proj.mlp, 33, 2.2);
+  proj.norm = { cx: 0, cy: 0, sx: 1, sy: 1 };
+  await vae.save();
+  await proj.save();
+  state.modelId = 'demo-v1';   // fixed id: demo sessions comparable everywhere
+  localStorage.setItem('motem_model_id', state.modelId);
+  state.modelReady = true;
+  resetTrace();
+  toast('demo space ready (random projection, no training) — replays are meaningless until you train');
+  setMode('live');
+};
+
+/* ---------------- export trained weights for the repo ---------------- */
+
+$('exportBtn').onclick = async () => {
+  if (!state.modelReady) return;
+  await vae.enc.save('downloads://motem-enc');
+  await vae.dec.save('downloads://motem-dec');
+  await proj.mlp.save('downloads://motem-proj');
+  const meta = {
+    modelId: state.modelId,
+    vae: { win: vae.win, dim: vae.dim, z: vae.z, arch: vae.arch },
+    projNorm: proj.norm,
+  };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(meta, null, 2)],
+    { type: 'application/json' }));
+  a.download = 'motem-meta.json';
+  a.click();
+  toast('7 files downloaded — put them in model/ at the repo root and push');
 };
 
 /* ---------------- compare ---------------- */
@@ -237,7 +277,7 @@ $('cmpBtn').onclick = async () => {
   if (!a || !b) { toast('pick two sessions'); return; }
   const an = analyze(a, b);
   state.compare = { a, b, an };
-  const warn = (a.modelId !== state.modelId || b.modelId !== state.modelId)
+  const warn = (String(a.modelId) !== String(state.modelId) || String(b.modelId) !== String(state.modelId))
     ? '<br>⚠ recorded with a different model — space may not match' : '';
   $('cmpStats').innerHTML =
     `<span class="both">■ overlap ${(an.jaccard * 100).toFixed(0)}%</span> (Jaccard)<br>` +
@@ -275,9 +315,22 @@ $('startBtn').onclick = async () => {
     vae = await MotionVAE.load();
     if (vae) proj = await Projector.load(vae.z);
     if (vae && proj) {
-      state.modelReady = true;
-      state.modelId = +localStorage.getItem('motem_model_id') || Date.now();
+      state.modelId = localStorage.getItem('motem_model_id') || String(Date.now());
+    } else {
+      // no local model → try pretrained weights shipped next to the app
+      bs.textContent = 'looking for pretrained space…';
+      const pre = await MotionVAE.loadFromUrl('model/');
+      if (pre) {
+        const p = await Projector.fromUrl('model/', pre.meta.projNorm, pre.vae.z);
+        if (p) {
+          vae = pre.vae; proj = p;
+          state.modelId = String(pre.meta.modelId);
+          toast('pretrained space loaded — no calibration needed');
+        }
+      }
     }
+    state.modelReady = !!(vae && proj);
+    if (state.modelReady) resetTrace();
 
     try { await navigator.wakeLock.request('screen'); } catch (e) {}
     pose.start();
