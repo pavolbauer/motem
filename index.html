@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>MOTEM — motion embedding</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0b1020;
+    --panel:#141b30;
+    --line:#26304f;
+    --cream:#e8ecff;
+    --dim:#8b93b8;
+    --acc:#5eead4;        /* teal accent */
+    --hot:#f472b6;        /* magenta */
+    --colA:#4f9cff;       /* session A */
+    --colB:#ff8c42;       /* session B */
+    --colBoth:#3ddc84;    /* overlap */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--cream);
+    font-family:'Space Grotesk',sans-serif}
+  button{font-family:inherit;cursor:pointer}
+
+  /* ---------- header ---------- */
+  #hdr{position:fixed;top:0;left:0;right:0;height:48px;z-index:6;display:flex;
+    align-items:center;gap:8px;padding:0 10px;background:rgba(11,16,32,.85);
+    border-bottom:1px solid var(--line);backdrop-filter:blur(6px)}
+  #brand{font-weight:700;letter-spacing:3px;color:var(--acc);font-size:15px}
+  #modes{display:flex;gap:6px;margin-left:6px}
+  .modeBtn{font-size:12px;font-weight:500;color:var(--dim);background:transparent;
+    border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+  .modeBtn.on{color:var(--ink);background:var(--acc);border-color:var(--acc);font-weight:700}
+  #status{margin-left:auto;font-size:11px;color:var(--dim);text-align:right;
+    max-width:38vw;line-height:1.25}
+  #flipBtn{font-size:13px;background:transparent;border:1px solid var(--line);
+    border-radius:999px;padding:5px 9px;color:var(--cream)}
+
+  /* ---------- tiles ---------- */
+  #tiles{position:fixed;top:48px;left:0;right:0;bottom:0;display:grid;gap:2px;
+    background:var(--line)}
+  @media (orientation:landscape){ #tiles{grid-template-columns:1fr 1fr} }
+  @media (orientation:portrait){ #tiles{grid-template-rows:1fr 1fr} }
+  .tile{position:relative;overflow:hidden;background:var(--ink)}
+  .tileTag{position:absolute;top:8px;left:10px;z-index:3;font-size:10px;
+    letter-spacing:2px;color:var(--dim);text-transform:uppercase;
+    background:rgba(11,16,32,.6);padding:3px 8px;border-radius:6px;pointer-events:none}
+
+  /* pose tile */
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    transform:scaleX(-1);filter:saturate(1.05)}
+  #poseCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:2}
+  #replayWrap{position:absolute;inset:0;z-index:4;background:rgba(11,16,32,.88);
+    display:none;align-items:center;justify-content:center;flex-direction:column}
+  #replayWrap.show{display:flex}
+  #replayCanvas{width:100%;flex:1}
+  #replayLabel{font-size:12px;color:var(--acc);padding:8px;letter-spacing:1px}
+  #replayHint{font-size:10px;color:var(--dim);padding-bottom:10px}
+
+  /* embed tile */
+  #embedCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:1}
+  #embedUI{position:absolute;left:0;right:0;bottom:0;z-index:3;display:flex;
+    gap:6px;align-items:center;padding:8px 10px;flex-wrap:wrap;
+    background:linear-gradient(transparent,rgba(11,16,32,.9) 40%)}
+  .btn{font-size:12px;font-weight:700;letter-spacing:.5px;color:var(--cream);
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:9px 14px}
+  .btn.primary{color:var(--ink);background:var(--acc);border-color:var(--acc)}
+  .btn.rec{color:#fff;background:#e11d48;border-color:#e11d48}
+  .btn:disabled{opacity:.4;cursor:default}
+  #sessName{font-size:12px;background:var(--panel);color:var(--cream);
+    border:1px solid var(--line);border-radius:10px;padding:9px 10px;width:110px}
+
+  /* panels (calibrate / compare) overlay the embed tile */
+  .panel{position:absolute;inset:0;z-index:4;background:rgba(11,16,32,.94);
+    padding:34px 16px 12px;display:none;flex-direction:column;gap:10px;
+    overflow-y:auto}
+  .panel.show{display:flex}
+  .panel h2{font-size:14px;letter-spacing:2px;color:var(--acc)}
+  .panel p{font-size:12px;line-height:1.55;color:var(--dim)}
+  .panel p b{color:var(--cream)}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select{font-size:12px;background:var(--panel);color:var(--cream);
+    border:1px solid var(--line);border-radius:10px;padding:8px;max-width:44%}
+  .prog{height:6px;background:var(--panel);border-radius:99px;overflow:hidden}
+  .prog i{display:block;height:100%;width:0%;background:var(--acc);
+    border-radius:99px;transition:width .15s}
+  .progLbl{font-size:11px;color:var(--dim)}
+  #calibCount{font-size:22px;font-weight:700;color:var(--hot)}
+  #cmpStats{font-size:12px;line-height:1.7;color:var(--cream)}
+  #cmpStats .a{color:var(--colA)} #cmpStats .b{color:var(--colB)}
+  #cmpStats .both{color:var(--colBoth)}
+  .radio{display:flex;gap:4px}
+  .radio button{font-size:11px;padding:6px 10px;border-radius:8px;
+    border:1px solid var(--line);background:transparent;color:var(--dim)}
+  .radio button.on{color:var(--ink);background:var(--hot);border-color:var(--hot)}
+  #sessList{font-size:11px;color:var(--dim);line-height:1.8}
+  #sessList b{color:var(--cream)}
+  #sessList .del{color:#f87171;cursor:pointer;margin-left:6px}
+
+  /* ---------- start curtain ---------- */
+  #curtain{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:22px;text-align:center;
+    padding:28px;background:radial-gradient(110% 90% at 50% 110%, #16224a 0%, var(--ink) 60%)}
+  #curtain h1{font-size:clamp(40px,10vw,64px);letter-spacing:8px;color:var(--acc);
+    text-shadow:0 0 34px rgba(94,234,212,.45)}
+  #curtain p{max-width:430px;font-size:14px;line-height:1.7;color:var(--dim)}
+  #curtain p b{color:var(--cream)}
+  #startBtn{font-weight:700;font-size:17px;letter-spacing:1px;color:var(--ink);
+    background:var(--acc);border:none;border-radius:999px;padding:16px 44px;
+    box-shadow:0 0 30px rgba(94,234,212,.4)}
+  #bootStatus{font-size:12px;color:var(--acc);min-height:16px}
+  #bootErr{font-size:12px;color:#f87171;max-width:420px;line-height:1.5}
+
+  #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    z-index:9;font-size:12px;background:var(--panel);border:1px solid var(--acc);
+    color:var(--cream);border-radius:10px;padding:9px 16px;opacity:0;
+    transition:opacity .25s;pointer-events:none;max-width:86vw;text-align:center}
+  #toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<header id="hdr">
+  <div id="brand">MOTEM</div>
+  <nav id="modes">
+    <button class="modeBtn on" data-mode="live">LIVE</button>
+    <button class="modeBtn" data-mode="calibrate">CALIBRATE</button>
+    <button class="modeBtn" data-mode="compare">COMPARE</button>
+  </nav>
+  <div id="status">booting…</div>
+  <button id="flipBtn" title="flip camera">🔄</button>
+</header>
+
+<main id="tiles">
+  <section class="tile" id="tilePose">
+    <span class="tileTag">pose</span>
+    <video id="cam" playsinline muted autoplay></video>
+    <canvas id="poseCanvas"></canvas>
+    <div id="replayWrap">
+      <canvas id="replayCanvas"></canvas>
+      <div id="replayLabel"></div>
+      <div id="replayHint">tap to close</div>
+    </div>
+  </section>
+
+  <section class="tile" id="tileEmbed">
+    <span class="tileTag">motion embedding</span>
+    <canvas id="embedCanvas"></canvas>
+
+    <div id="embedUI">
+      <button class="btn" id="recBtn" disabled>● REC</button>
+      <input id="sessName" placeholder="session name">
+      <button class="btn" id="saveBtn" disabled>SAVE</button>
+    </div>
+
+    <div class="panel" id="calibPanel">
+      <h2>CALIBRATE — teach the space</h2>
+      <p>Record <b>1–3 minutes</b> of the movement vocabulary you care about
+        (walk, turn, raise arms, squat, wave, dance…). A motion-VAE and a
+        parametric UMAP head are then trained <b>in your browser</b>. All later
+        sessions are embedded into this one frozen space, so they stay comparable.</p>
+      <div class="row">
+        <span class="progLbl">architecture</span>
+        <div class="radio" id="archPick">
+          <button data-arch="conv" class="on">CONV (fast)</button>
+          <button data-arch="gru">GRU (VAME-style)</button>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn rec" id="calibRecBtn">● RECORD DATA</button>
+        <span id="calibCount">0</span><span class="progLbl">windows</span>
+      </div>
+      <div class="row"><button class="btn primary" id="trainBtn" disabled>TRAIN MODEL</button></div>
+      <div class="progLbl" id="p1Lbl">1 · motion VAE</div><div class="prog"><i id="p1"></i></div>
+      <div class="progLbl" id="p2Lbl">2 · UMAP fit</div><div class="prog"><i id="p2"></i></div>
+      <div class="progLbl" id="p3Lbl">3 · parametric projector</div><div class="prog"><i id="p3"></i></div>
+      <p id="calibMsg"></p>
+    </div>
+
+    <div class="panel" id="comparePanel">
+      <h2>COMPARE — overlap / novelty</h2>
+      <div class="row">
+        <select id="selA"></select>
+        <span class="progLbl">vs</span>
+        <select id="selB"></select>
+        <button class="btn primary" id="cmpBtn">SHOW</button>
+      </div>
+      <div id="cmpStats"></div>
+      <p>Tap regions of the map (left tile shows the decoded motion — the VAE run
+        backwards from the latent).</p>
+      <div id="sessList"></div>
+    </div>
+  </section>
+</main>
+
+<div id="curtain">
+  <h1>MOTEM</h1>
+  <p><b>Whole-body motion embedding, live.</b> One tile shows the pose the camera
+    sees; the other maps every movement window into a learned latent space
+    (motion-VAE → parametric UMAP). Record sessions, compare their maps, tap a
+    region to replay the motion decoded from the latent.</p>
+  <button id="startBtn">START CAMERA</button>
+  <div id="bootStatus"></div>
+  <div id="bootErr"></div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/umap-js@1.4.0/lib/umap-js.min.js"></script>
+<script type="module">
+import { FilesetResolver, PoseLandmarker } from
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+/* ================= pose.js ================= */
+
+// BlazePose 33-landmark skeleton (body only, face kept to nose dot)
+const POSE_CONNECTIONS = [
+  [11,12],[11,13],[13,15],[12,14],[14,16],          // shoulders + arms
+  [15,17],[15,19],[15,21],[16,18],[16,20],[16,22],  // hands
+  [11,23],[12,24],[23,24],                          // torso
+  [23,25],[25,27],[24,26],[26,28],                  // legs
+  [27,29],[29,31],[27,31],[28,30],[30,32],[28,32],  // feet
+];
+
+class PoseEngine {
+  constructor(video, canvas) {
+    this.video = video;
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.facing = 'user';
+    this.mirror = true;
+    this.stream = null;
+    this.landmarker = null;
+    this.onPose = null;      // (landmarks|null, tMs) => void
+    this.running = false;
+  }
+
+  async openCamera() {
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: this.facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    this.video.srcObject = this.stream;
+    this.mirror = (this.facing === 'user');
+    this.video.style.transform = this.mirror ? 'scaleX(-1)' : 'none';
+    await this.video.play();
+  }
+
+  async flip() {
+    this.facing = this.facing === 'user' ? 'environment' : 'user';
+    try { await this.openCamera(); }
+    catch (e) { this.facing = this.facing === 'user' ? 'environment' : 'user'; await this.openCamera(); }
+  }
+
+  async initLandmarker(onStatus) {
+    onStatus?.('loading pose model…');
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    const MODEL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
+    const make = (delegate) => PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: MODEL, delegate },
+      runningMode: "VIDEO", numPoses: 1,
+      minPoseDetectionConfidence: 0.4, minTrackingConfidence: 0.4,
+    });
+    try { this.landmarker = await make('GPU'); }
+    catch (e) { this.landmarker = await make('CPU'); }
+  }
+
+  start() {
+    this.running = true;
+    let lastVideoTime = -1, lastFrame = 0;
+    const loop = (t) => {
+      if (!this.running) return;
+      requestAnimationFrame(loop);
+      if (t - lastFrame < 30) return;
+      lastFrame = t;
+      if (this.video.readyState < 2) return;
+      if (this.video.currentTime === lastVideoTime) return;
+      lastVideoTime = this.video.currentTime;
+      let lm = null;
+      try {
+        const res = this.landmarker.detectForVideo(this.video, performance.now());
+        lm = (res.landmarks && res.landmarks[0]) || null;
+      } catch (e) { /* skip frame */ }
+      this.draw(lm);
+      this.onPose?.(lm, performance.now());
+    };
+    requestAnimationFrame(loop);
+  }
+
+  // map normalized landmark coords onto the cover-fitted video
+  mapPoint(p, W, H) {
+    const vw = this.video.videoWidth || 1280, vh = this.video.videoHeight || 720;
+    const s = Math.max(W / vw, H / vh);
+    const dw = vw * s, dh = vh * s;
+    let x = (W - dw) / 2 + p.x * dw;
+    const y = (H - dh) / 2 + p.y * dh;
+    if (this.mirror) x = W - x;
+    return [x, y];
+  }
+
+  draw(lm) {
+    const c = this.canvas;
+    const W = c.width = c.clientWidth * devicePixelRatio;
+    const H = c.height = c.clientHeight * devicePixelRatio;
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, W, H);
+    if (!lm) return;
+    ctx.strokeStyle = 'rgba(94,234,212,.9)';
+    ctx.lineWidth = 2.5 * devicePixelRatio;
+    ctx.beginPath();
+    POSE_CONNECTIONS.forEach(([a, b]) => {
+      const pa = this.mapPoint(lm[a], W, H), pb = this.mapPoint(lm[b], W, H);
+      ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]);
+    });
+    ctx.stroke();
+    ctx.fillStyle = '#f472b6';
+    lm.forEach((p, i) => {
+      if (i > 0 && i < 11) return; // skip face except nose
+      const [x, y] = this.mapPoint(p, W, H);
+      ctx.beginPath(); ctx.arc(x, y, 3 * devicePixelRatio, 0, 7); ctx.fill();
+    });
+  }
+}
+
+/* ================= features.js ================= */
+// Pose → egocentric features and sliding temporal windows.
+// Analogous to VAME's egocentric alignment: hip-centered, torso-scaled.
+
+const NUM_LM = 33;
+const FEAT_DIM = NUM_LM * 2;   // x,y per landmark (z is too noisy in-browser)
+const WIN = 30;                // temporal window length (~2 s at 15 fps)
+const SAMPLE_MS = 1000 / 15;   // feature sampling rate
+
+function poseToFeatures(lm) {
+  const hipX = (lm[23].x + lm[24].x) / 2, hipY = (lm[23].y + lm[24].y) / 2;
+  const shX = (lm[11].x + lm[12].x) / 2, shY = (lm[11].y + lm[12].y) / 2;
+  const torso = Math.hypot(shX - hipX, shY - hipY) || 1e-4; // scale reference
+  const f = new Float32Array(FEAT_DIM);
+  for (let i = 0; i < NUM_LM; i++) {
+    f[i * 2]     = clamp((lm[i].x - hipX) / torso, -4, 4);
+    f[i * 2 + 1] = clamp((lm[i].y - hipY) / torso, -4, 4);
+  }
+  return f;
+}
+
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+class WindowBuffer {
+  constructor(win = WIN) {
+    this.win = win;
+    this.frames = [];
+    this.lastT = 0;
+  }
+  push(feat, t) {
+    if (this.lastT && t - this.lastT > 500) this.frames.length = 0; // tracking gap → reset
+    this.lastT = t;
+    this.frames.push(feat);
+    if (this.frames.length > this.win) this.frames.shift();
+  }
+  full() { return this.frames.length === this.win; }
+  // copy as [win][dim] plain arrays (safe to keep / feed tf.tensor3d)
+  snapshot() { return this.frames.map(f => Array.from(f)); }
+  reset() { this.frames.length = 0; this.lastT = 0; }
+}
+
+/* ================= vae.js ================= */
+// Motion VAE trained fully in-browser with TF.js.
+// Two architectures over the same [WIN, FEAT_DIM] window:
+//  - 'conv': temporal Conv1D encoder + dense decoder (fast, phone-friendly)
+//  - 'gru' : bidirectional GRU encoder + GRU decoder (VAME-style)
+// Both use the VAE lambda: hidden → mu / logvar, reparameterized sample,
+// MSE reconstruction + KL with linear annealing (as in VAME's rnn_vae.py).
+
+class MotionVAE {
+  constructor({ win = 30, dim = 66, zDim = 16, arch = 'conv' } = {}) {
+    this.win = win; this.dim = dim; this.z = zDim; this.arch = arch;
+    this.enc = null; this.dec = null;
+  }
+
+  build() {
+    const inp = tf.input({ shape: [this.win, this.dim] });
+    let h;
+    if (this.arch === 'gru') {
+      h = tf.layers.bidirectional({
+        layer: tf.layers.gru({ units: 48, returnSequences: false }),
+        mergeMode: 'concat',
+      }).apply(inp);
+    } else {
+      h = tf.layers.conv1d({ filters: 48, kernelSize: 5, strides: 2, activation: 'relu', padding: 'same' }).apply(inp);
+      h = tf.layers.conv1d({ filters: 64, kernelSize: 5, strides: 2, activation: 'relu', padding: 'same' }).apply(h);
+      h = tf.layers.flatten().apply(h);
+    }
+    h = tf.layers.dense({ units: 96, activation: 'relu' }).apply(h);
+    const mu = tf.layers.dense({ units: this.z, name: 'mu' }).apply(h);
+    const lv = tf.layers.dense({ units: this.z, name: 'logvar' }).apply(h);
+    this.enc = tf.model({ inputs: inp, outputs: [mu, lv] });
+
+    const zin = tf.input({ shape: [this.z] });
+    let d;
+    if (this.arch === 'gru') {
+      d = tf.layers.repeatVector({ n: this.win }).apply(zin);
+      d = tf.layers.gru({ units: 96, returnSequences: true }).apply(d);
+      d = tf.layers.timeDistributed({ layer: tf.layers.dense({ units: this.dim }) }).apply(d);
+    } else {
+      d = tf.layers.dense({ units: 96, activation: 'relu' }).apply(zin);
+      d = tf.layers.dense({ units: 256, activation: 'relu' }).apply(d);
+      d = tf.layers.dense({ units: this.win * this.dim }).apply(d);
+      d = tf.layers.reshape({ targetShape: [this.win, this.dim] }).apply(d);
+    }
+    this.dec = tf.model({ inputs: zin, outputs: d });
+  }
+
+  async train(windows, { epochs, batch = 32, beta = 0.005, klStart = 6, anneal = 10, onProgress } = {}) {
+    epochs = epochs ?? (this.arch === 'gru' ? 25 : 45);
+    const n = windows.length;
+    const xs = tf.tensor3d(windows);
+    const opt = tf.train.adam(1e-3);
+    let lastLoss = 0;
+    for (let e = 0; e < epochs; e++) {
+      const perm = tf.util.createShuffledIndices(n);
+      const klW = e <= klStart ? 0 : Math.min(1, (e - klStart) / anneal);
+      let sum = 0, steps = 0;
+      for (let i = 0; i < n; i += batch) {
+        const idx = tf.tensor1d(new Int32Array(perm.slice(i, i + batch)), 'int32');
+        const xb = tf.gather(xs, idx);
+        idx.dispose();
+        const cost = opt.minimize(() => tf.tidy(() => {
+          const [mu, lv] = this.enc.apply(xb);
+          const eps = tf.randomNormal(mu.shape);
+          const z = mu.add(lv.mul(0.5).exp().mul(eps));
+          const rec = this.dec.apply(z);
+          const mse = tf.losses.meanSquaredError(xb, rec);
+          const kl = tf.scalar(1).add(lv).sub(mu.square()).sub(lv.exp())
+            .mean().mul(-0.5);
+          return mse.add(kl.mul(beta * klW));
+        }), true);
+        sum += (await cost.data())[0];
+        cost.dispose(); xb.dispose();
+        steps++;
+      }
+      lastLoss = sum / steps;
+      onProgress?.(e + 1, epochs, lastLoss);
+      await tf.nextFrame();
+    }
+    xs.dispose(); opt.dispose();
+    return lastLoss;
+  }
+
+  // deterministic embedding = mu (as VAME does at inference)
+  encode(window) {
+    return tf.tidy(() => {
+      const [mu] = this.enc.predict(tf.tensor3d([window]));
+      return Array.from(mu.dataSync());
+    });
+  }
+
+  encodeAll(windows, batch = 128) {
+    const out = [];
+    for (let i = 0; i < windows.length; i += batch) {
+      const part = windows.slice(i, i + batch);
+      tf.tidy(() => {
+        const [mu] = this.enc.predict(tf.tensor3d(part));
+        const d = mu.dataSync();
+        for (let j = 0; j < part.length; j++) out.push(Array.from(d.slice(j * this.z, (j + 1) * this.z)));
+      });
+    }
+    return out;
+  }
+
+  // the network run backwards: latent → motion window [win][dim]
+  decode(latent) {
+    return tf.tidy(() => {
+      const w = this.dec.predict(tf.tensor2d([latent], [1, this.z]));
+      return w.squeeze().arraySync();
+    });
+  }
+
+  async save() {
+    await this.enc.save('indexeddb://motem-enc');
+    await this.dec.save('indexeddb://motem-dec');
+    localStorage.setItem('motem_vae_meta', JSON.stringify(
+      { win: this.win, dim: this.dim, z: this.z, arch: this.arch }));
+  }
+
+  static async load() {
+    const meta = JSON.parse(localStorage.getItem('motem_vae_meta') || 'null');
+    if (!meta) return null;
+    try {
+      const vae = new MotionVAE({ win: meta.win, dim: meta.dim, zDim: meta.z, arch: meta.arch });
+      vae.enc = await tf.loadLayersModel('indexeddb://motem-enc');
+      vae.dec = await tf.loadLayersModel('indexeddb://motem-dec');
+      return vae;
+    } catch (e) { return null; }
+  }
+}
+
+/* ================= projector.js ================= */
+// Parametric UMAP head: fit classic UMAP on the calibration latents once,
+// then train a small MLP to reproduce that projection. The MLP is the
+// parametric embedder — every future latent maps into the SAME frozen 2D
+// space, which is what makes sessions comparable.
+
+const UMAP_EPOCHS = 250;
+
+class Projector {
+  constructor(zDim = 16) {
+    this.z = zDim;
+    this.mlp = null;
+    this.norm = null; // {cx, cy, sx, sy} → map UMAP coords to [-1, 1]
+  }
+
+  async fit(latents, { onUmap, onMlp } = {}) {
+    const UMAPClass = (window.UMAP && window.UMAP.UMAP) || window.UMAP;
+    const nn = Math.max(5, Math.min(30, Math.floor(Math.sqrt(latents.length))));
+    const umap = new UMAPClass({
+      nComponents: 2, nNeighbors: nn, minDist: 0.1, nEpochs: UMAP_EPOCHS,
+    });
+    const coords = await umap.fitAsync(latents, (ep) => {
+      onUmap?.(ep, UMAP_EPOCHS);
+      return true;
+    });
+
+    // normalize the map into [-1,1] with margin; this frame is frozen forever
+    let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+    coords.forEach(([x, y]) => {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    });
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const sx = (maxX - minX) / 2 / 0.85 || 1, sy = (maxY - minY) / 2 / 0.85 || 1;
+    this.norm = { cx, cy, sx, sy };
+    const target = coords.map(([x, y]) => [(x - cx) / sx, (y - cy) / sy]);
+
+    this.mlp = tf.sequential({
+      layers: [
+        tf.layers.dense({ inputShape: [this.z], units: 64, activation: 'relu' }),
+        tf.layers.dense({ units: 64, activation: 'relu' }),
+        tf.layers.dense({ units: 2 }),
+      ],
+    });
+    this.mlp.compile({ optimizer: tf.train.adam(2e-3), loss: 'meanSquaredError' });
+    const xsT = tf.tensor2d(latents), ysT = tf.tensor2d(target);
+    const EP = 150;
+    await this.mlp.fit(xsT, ysT, {
+      epochs: EP, batchSize: 32, shuffle: true, verbose: 0,
+      callbacks: { onEpochEnd: async (e) => { onMlp?.(e + 1, EP); await tf.nextFrame(); } },
+    });
+    xsT.dispose(); ysT.dispose();
+    return target; // normalized calibration cloud (handy for debugging)
+  }
+
+  project(latent) {
+    return tf.tidy(() => {
+      const p = this.mlp.predict(tf.tensor2d([latent], [1, this.z]));
+      const d = p.dataSync();
+      return [d[0], d[1]];
+    });
+  }
+
+  async save() {
+    await this.mlp.save('indexeddb://motem-proj');
+    localStorage.setItem('motem_proj_norm', JSON.stringify(this.norm));
+  }
+
+  static async load(zDim) {
+    const norm = JSON.parse(localStorage.getItem('motem_proj_norm') || 'null');
+    if (!norm) return null;
+    try {
+      const p = new Projector(zDim);
+      p.mlp = await tf.loadLayersModel('indexeddb://motem-proj');
+      p.norm = norm;
+      return p;
+    } catch (e) { return null; }
+  }
+}
+
+/* ================= scatter.js ================= */
+// Embedding scatter view. Coordinate space is fixed to [-RANGE, RANGE]
+// (the projector emits ~[-1,1]), so live points, saved sessions and the
+// compare overlay all share one frame.
+
+const RANGE = 1.15;
+
+class EmbedView {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.layer = document.createElement('canvas'); // accumulated points
+    this.lctx = this.layer.getContext('2d');
+    this.points = [];           // {x, y, t}
+    this.current = null;        // live cursor [x, y]
+    this.startT = 0;
+    this.clickCb = null;
+    canvas.addEventListener('click', (e) => {
+      if (!this.clickCb) return;
+      const r = canvas.getBoundingClientRect();
+      const nx = ((e.clientX - r.left) / r.width * 2 - 1) * RANGE;
+      const ny = ((e.clientY - r.top) / r.height * 2 - 1) * RANGE;
+      this.clickCb(nx, ny);
+    });
+  }
+
+  resize() {
+    const W = this.canvas.clientWidth * devicePixelRatio;
+    const H = this.canvas.clientHeight * devicePixelRatio;
+    if (this.canvas.width !== W || this.canvas.height !== H) {
+      this.canvas.width = W; this.canvas.height = H;
+      this.layer.width = W; this.layer.height = H;
+      this.restamp();
+    }
+  }
+
+  toPx(x, y) {
+    return [
+      (x / RANGE + 1) / 2 * this.canvas.width,
+      (y / RANGE + 1) / 2 * this.canvas.height,
+    ];
+  }
+
+  colorFor(t) { // teal → magenta over 4 minutes of recording
+    const h = 175 + Math.min(1, (t - this.startT) / 240000) * 140;
+    return `hsla(${h},85%,65%,.85)`;
+  }
+
+  reset() {
+    this.points.length = 0;
+    this.startT = performance.now();
+    this.lctx.clearRect(0, 0, this.layer.width, this.layer.height);
+  }
+
+  add(x, y, t) {
+    this.points.push({ x, y, t });
+    this.stamp(x, y, t);
+  }
+
+  stamp(x, y, t) {
+    const [px, py] = this.toPx(x, y);
+    this.lctx.fillStyle = this.colorFor(t);
+    this.lctx.beginPath();
+    this.lctx.arc(px, py, 2.2 * devicePixelRatio, 0, 7);
+    this.lctx.fill();
+  }
+
+  restamp() {
+    this.lctx.clearRect(0, 0, this.layer.width, this.layer.height);
+    this.points.forEach(p => this.stamp(p.x, p.y, p.t));
+  }
+
+  render() {
+    this.resize();
+    const { ctx, canvas } = this;
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    // grid
+    ctx.strokeStyle = 'rgba(38,48,79,.5)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 6; i++) {
+      const gx = W * i / 6, gy = H * i / 6;
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+    }
+    ctx.drawImage(this.layer, 0, 0);
+    if (this.current) {
+      const [px, py] = this.toPx(this.current[0], this.current[1]);
+      const pulse = 1 + 0.25 * Math.sin(performance.now() / 180);
+      ctx.strokeStyle = 'rgba(94,234,212,.9)';
+      ctx.lineWidth = 2 * devicePixelRatio;
+      ctx.beginPath(); ctx.arc(px, py, 7 * devicePixelRatio * pulse, 0, 7); ctx.stroke();
+      ctx.fillStyle = '#5eead4';
+      ctx.beginPath(); ctx.arc(px, py, 3 * devicePixelRatio, 0, 7); ctx.fill();
+    }
+  }
+
+  // nearest recorded point to normalized coords, within maxDist
+  nearest(nx, ny, maxDist = 0.1) {
+    let best = -1, bd = maxDist * maxDist;
+    this.points.forEach((p, i) => {
+      const d = (p.x - nx) ** 2 + (p.y - ny) ** 2;
+      if (d < bd) { bd = d; best = i; }
+    });
+    return best;
+  }
+}
+
+/* ================= sessions.js ================= */
+// Session persistence in IndexedDB.
+// A session = the embedded trace of one recording:
+//   { id, name, createdAt, modelId, points: [{x,y,t}], latents: [[z…]] }
+// Latents are stored so any region can later be decoded back into motion.
+
+const DB = 'motem-db', STORE = 'sessions';
+
+function openDb() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+
+async function tx(mode, fn) {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const t = db.transaction(STORE, mode);
+    const out = fn(t.objectStore(STORE));
+    t.oncomplete = () => { db.close(); res(out.result ?? out); };
+    t.onerror = () => { db.close(); rej(t.error); };
+  });
+}
+
+const saveSession = (sess) => tx('readwrite', s => s.put(sess));
+const deleteSession = (id) => tx('readwrite', s => s.delete(id));
+
+async function listSessions() {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const req = db.transaction(STORE).objectStore(STORE).getAll();
+    req.onsuccess = () => { db.close(); res(req.result.sort((a, b) => b.createdAt - a.createdAt)); };
+    req.onerror = () => { db.close(); rej(req.error); };
+  });
+}
+
+async function getSession(id) {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const req = db.transaction(STORE).objectStore(STORE).get(id);
+    req.onsuccess = () => { db.close(); res(req.result); };
+    req.onerror = () => { db.close(); rej(req.error); };
+  });
+}
+
+const db = { saveSession, deleteSession, listSessions, getSession };
+
+/* ================= replay.js ================= */
+
+
+// Animates a decoded motion window (hip-centered, torso-scaled features)
+// as a stick figure — the generative direction of the pipeline.
+
+class Replayer {
+  constructor(wrap, canvas, label) {
+    this.wrap = wrap;
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.label = label;
+    this.raf = null;
+    wrap.addEventListener('click', () => this.stop());
+  }
+
+  play(frames, { fps = 15, loops = 4, label = '' } = {}) {
+    this.stop();
+    this.wrap.classList.add('show');
+    this.label.textContent = label;
+    const t0 = performance.now();
+    const total = frames.length * loops;
+    const step = (t) => {
+      const i = Math.floor((t - t0) / (1000 / fps));
+      if (i >= total) { this.stop(); return; }
+      this.drawFrame(frames[i % frames.length]);
+      this.raf = requestAnimationFrame(step);
+    };
+    this.raf = requestAnimationFrame(step);
+  }
+
+  stop() {
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = null;
+    this.wrap.classList.remove('show');
+  }
+
+  drawFrame(feat) {
+    const c = this.canvas;
+    const W = c.width = c.clientWidth * devicePixelRatio;
+    const H = c.height = c.clientHeight * devicePixelRatio;
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, W, H);
+    const S = Math.min(W, H) / 4.2;           // torso length in px
+    const cx = W / 2, cy = H * 0.45;          // hip anchor
+    const pt = (i) => [cx + feat[i * 2] * S, cy + feat[i * 2 + 1] * S];
+    ctx.strokeStyle = 'rgba(244,114,182,.95)';
+    ctx.lineWidth = 3 * devicePixelRatio;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = '#f472b6';
+    ctx.shadowBlur = 12 * devicePixelRatio;
+    ctx.beginPath();
+    POSE_CONNECTIONS.forEach(([a, b]) => {
+      const pa = pt(a), pb = pt(b);
+      ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#5eead4';
+    for (let i = 0; i < NUM_LM; i++) {
+      if (i > 0 && i < 11) continue;
+      const [x, y] = pt(i);
+      ctx.beginPath(); ctx.arc(x, y, 3.5 * devicePixelRatio, 0, 7); ctx.fill();
+    }
+  }
+}
+
+/* ================= compare.js ================= */
+
+// Overlap / novelty analysis between two sessions on an occupancy grid
+// over the shared embedding frame.
+
+const GRID = 40;
+const COL_A = '79,156,255', COL_B = '255,140,66', COL_BOTH = '61,220,132';
+
+function occupancy(points) {
+  const set = new Set();
+  points.forEach(p => {
+    const gx = Math.floor((p.x / RANGE + 1) / 2 * GRID);
+    const gy = Math.floor((p.y / RANGE + 1) / 2 * GRID);
+    if (gx >= 0 && gx < GRID && gy >= 0 && gy < GRID) set.add(gy * GRID + gx);
+  });
+  return set;
+}
+
+function analyze(sessA, sessB) {
+  const a = occupancy(sessA.points), b = occupancy(sessB.points);
+  const both = new Set([...a].filter(c => b.has(c)));
+  const onlyA = new Set([...a].filter(c => !b.has(c)));
+  const onlyB = new Set([...b].filter(c => !a.has(c)));
+  const union = a.size + b.size - both.size;
+  return {
+    a, b, both, onlyA, onlyB,
+    jaccard: union ? both.size / union : 0,
+    novelB: b.size ? onlyB.size / b.size : 0,
+    novelA: a.size ? onlyA.size / a.size : 0,
+  };
+}
+
+function renderCompare(view, sessA, sessB, an) {
+  view.resize();
+  const { ctx, canvas } = view;
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const cw = W / GRID, ch = H / GRID;
+  const cell = (idx, rgb, alpha) => {
+    ctx.fillStyle = `rgba(${rgb},${alpha})`;
+    ctx.fillRect((idx % GRID) * cw, Math.floor(idx / GRID) * ch, cw, ch);
+  };
+  an.onlyA.forEach(c => cell(c, COL_A, 0.22));
+  an.onlyB.forEach(c => cell(c, COL_B, 0.22));
+  an.both.forEach(c => cell(c, COL_BOTH, 0.30));
+
+  const dot = (p, rgb) => {
+    const [px, py] = view.toPx(p.x, p.y);
+    ctx.fillStyle = `rgba(${rgb},.75)`;
+    ctx.beginPath(); ctx.arc(px, py, 1.6 * devicePixelRatio, 0, 7); ctx.fill();
+  };
+  sessA.points.forEach(p => dot(p, COL_A));
+  sessB.points.forEach(p => dot(p, COL_B));
+}
+
+// nearest point across both sessions → {sess, index} for decoder replay
+function nearestAcross(sessA, sessB, nx, ny, maxDist = 0.12) {
+  let best = null, bd = maxDist * maxDist;
+  const scan = (sess, tag) => sess.points.forEach((p, i) => {
+    const d = (p.x - nx) ** 2 + (p.y - ny) ** 2;
+    if (d < bd) { bd = d; best = { sess, tag, index: i }; }
+  });
+  scan(sessA, 'A'); scan(sessB, 'B');
+  return best;
+}
+
+/* ================= main.js ================= */
+
+
+
+
+
+
+
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+const setStatus = (t) => statusEl.textContent = t;
+const toast = (t) => {
+  const el = $('toast');
+  el.textContent = t; el.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('show'), 2600);
+};
+
+const state = {
+  mode: 'live',
+  arch: 'conv',
+  modelReady: false,
+  modelId: null,
+  collecting: false,        // calibration data recording
+  recording: false,         // session recording
+  calibWindows: [],
+  sessLatents: [],          // parallel to view.points while recording
+  compare: null,            // {a, b, an} when a comparison is shown
+  training: false,
+};
+
+let vae = null, proj = null;
+const pose = new PoseEngine($('cam'), $('poseCanvas'));
+const view = new EmbedView($('embedCanvas'));
+const replayer = new Replayer($('replayWrap'), $('replayCanvas'), $('replayLabel'));
+const buf = new WindowBuffer(WIN);
+
+/* ---------------- pose stream → features → embedding ---------------- */
+
+let lastSample = 0, embedSkip = 0, calibSkip = 0;
+
+pose.onPose = (lm, t) => {
+  if (state.mode !== 'compare') view.render();
+  if (!lm) return;
+  if (t - lastSample < SAMPLE_MS - 5) return;
+  lastSample = t;
+  buf.push(poseToFeatures(lm), t);
+  if (!buf.full()) return;
+
+  if (state.collecting && ++calibSkip >= 3) {   // ~5 windows/s while calibrating
+    calibSkip = 0;
+    state.calibWindows.push(buf.snapshot());
+    $('calibCount').textContent = state.calibWindows.length;
+    $('trainBtn').disabled = state.calibWindows.length < 60 || state.training;
+  }
+
+  if (state.modelReady && !state.training && ++embedSkip >= 4) { // ~3.7 pts/s
+    embedSkip = 0;
+    const z = vae.encode(buf.snapshot());
+    const [x, y] = proj.project(z);
+    view.current = [x, y];
+    if (state.recording) {
+      view.add(x, y, performance.now());
+      state.sessLatents.push(z);
+    }
+  }
+};
+
+/* ---------------- embedding tile clicks → decoder replay ---------------- */
+
+view.clickCb = (nx, ny) => {
+  if (state.mode === 'compare' && state.compare) {
+    const hit = nearestAcross(state.compare.a, state.compare.b, nx, ny);
+    if (!hit) return;
+    playLatent(hit.sess.latents[hit.index],
+      `${hit.tag} · ${hit.sess.name} · decoded from latent`);
+  } else if (view.points.length) {
+    const i = view.nearest(nx, ny);
+    if (i < 0) return;
+    playLatent(state.sessLatents[i], 'this session · decoded from latent');
+  }
+};
+
+function playLatent(latent, label) {
+  if (!vae || !latent) return;
+  replayer.play(vae.decode(latent), { label });
+}
+
+/* ---------------- modes ---------------- */
+
+document.querySelectorAll('.modeBtn').forEach(btn => {
+  btn.onclick = () => setMode(btn.dataset.mode);
+});
+
+function setMode(m) {
+  state.mode = m;
+  document.querySelectorAll('.modeBtn').forEach(b =>
+    b.classList.toggle('on', b.dataset.mode === m));
+  $('calibPanel').classList.toggle('show', m === 'calibrate');
+  $('comparePanel').classList.toggle('show', m === 'compare');
+  $('embedUI').style.display = m === 'live' ? 'flex' : 'none';
+  replayer.stop();
+  if (m === 'compare') refreshSessionUI();
+  if (m !== 'compare') state.compare = null;
+  if (m !== 'calibrate' && state.collecting) toggleCalibRec();
+  updateStatus();
+}
+
+function updateStatus() {
+  if (state.training) return; // training progress owns the status line
+  if (!state.modelReady) setStatus('no model yet — CALIBRATE first');
+  else if (state.recording) setStatus(`recording · ${view.points.length} pts`);
+  else setStatus(`model ready (${vae.arch}, z=${vae.z}) — REC to record a session`);
+  $('recBtn').disabled = !state.modelReady;
+  $('saveBtn').disabled = !(state.modelReady && !state.recording && view.points.length > 0);
+}
+
+/* ---------------- live: record & save sessions ---------------- */
+
+$('recBtn').onclick = () => {
+  state.recording = !state.recording;
+  if (state.recording) {
+    view.reset();
+    state.sessLatents = [];
+    $('recBtn').textContent = '■ STOP';
+    $('recBtn').classList.add('rec');
+  } else {
+    $('recBtn').textContent = '● REC';
+    $('recBtn').classList.remove('rec');
+  }
+  updateStatus();
+};
+
+$('saveBtn').onclick = async () => {
+  const name = $('sessName').value.trim() ||
+    `session ${new Date().toLocaleTimeString()}`;
+  await db.saveSession({
+    id: Date.now(),
+    name,
+    createdAt: Date.now(),
+    modelId: state.modelId,
+    points: view.points.map(p => ({ x: p.x, y: p.y, t: p.t })),
+    latents: state.sessLatents,
+  });
+  $('sessName').value = '';
+  toast(`saved “${name}” (${view.points.length} pts)`);
+};
+
+/* ---------------- calibrate & train ---------------- */
+
+$('archPick').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    state.arch = b.dataset.arch;
+    $('archPick').querySelectorAll('button').forEach(x =>
+      x.classList.toggle('on', x === b));
+  };
+});
+
+$('calibRecBtn').onclick = toggleCalibRec;
+function toggleCalibRec() {
+  state.collecting = !state.collecting;
+  $('calibRecBtn').textContent = state.collecting ? '■ STOP' : '● RECORD DATA';
+  $('calibMsg').textContent = state.collecting
+    ? 'Move! Cover the full movement vocabulary you want mapped.' : '';
+}
+
+const setProg = (id, v) => $(id).style.width = `${Math.round(v * 100)}%`;
+
+$('trainBtn').onclick = async () => {
+  if (state.training) return;
+  if (state.collecting) toggleCalibRec();
+  state.training = true;
+  $('trainBtn').disabled = true;
+  ['p1', 'p2', 'p3'].forEach(p => setProg(p, 0));
+  try {
+    const windows = state.calibWindows;
+    $('calibMsg').textContent = `training on ${windows.length} windows…`;
+
+    vae = new MotionVAE({ win: WIN, dim: FEAT_DIM, zDim: 16, arch: state.arch });
+    vae.build();
+    await vae.train(windows, {
+      onProgress: (e, tot, loss) => {
+        setProg('p1', e / tot);
+        setStatus(`VAE ${e}/${tot} · loss ${loss.toFixed(4)}`);
+      },
+    });
+
+    const latents = vae.encodeAll(windows);
+    proj = new Projector(vae.z);
+    await proj.fit(latents, {
+      onUmap: (e, tot) => { setProg('p2', e / tot); setStatus(`UMAP ${e}/${tot}`); },
+      onMlp: (e, tot) => { setProg('p3', e / tot); setStatus(`projector ${e}/${tot}`); },
+    });
+
+    await vae.save();
+    await proj.save();
+    state.modelId = Date.now();
+    localStorage.setItem('motem_model_id', state.modelId);
+    state.modelReady = true;
+    state.calibWindows = [];
+    $('calibCount').textContent = '0';
+    $('calibMsg').textContent = 'Done — space is frozen. Go LIVE and record sessions.';
+    toast('model trained & saved');
+    view.reset();
+    setMode('live');
+  } catch (e) {
+    console.error(e);
+    $('calibMsg').textContent = 'Training failed: ' + e.message;
+  } finally {
+    state.training = false;
+    updateStatus();
+  }
+};
+
+/* ---------------- compare ---------------- */
+
+async function refreshSessionUI() {
+  const sessions = await db.listSessions();
+  const opts = sessions.map(s =>
+    `<option value="${s.id}">${s.name} (${s.points.length})</option>`).join('');
+  $('selA').innerHTML = opts;
+  $('selB').innerHTML = opts;
+  if (sessions.length > 1) $('selB').selectedIndex = 1;
+  $('sessList').innerHTML = sessions.length
+    ? '<b>saved sessions</b><br>' + sessions.map(s =>
+        `${s.name} — ${s.points.length} pts, ${new Date(s.createdAt).toLocaleString()}` +
+        `<span class="del" data-id="${s.id}">✕</span>`).join('<br>')
+    : 'no saved sessions yet — record some in LIVE mode';
+  $('sessList').querySelectorAll('.del').forEach(el => {
+    el.onclick = async () => { await db.deleteSession(+el.dataset.id); refreshSessionUI(); };
+  });
+}
+
+$('cmpBtn').onclick = async () => {
+  const a = await db.getSession(+$('selA').value);
+  const b = await db.getSession(+$('selB').value);
+  if (!a || !b) { toast('pick two sessions'); return; }
+  const an = analyze(a, b);
+  state.compare = { a, b, an };
+  const warn = (a.modelId !== state.modelId || b.modelId !== state.modelId)
+    ? '<br>⚠ recorded with a different model — space may not match' : '';
+  $('cmpStats').innerHTML =
+    `<span class="both">■ overlap ${(an.jaccard * 100).toFixed(0)}%</span> (Jaccard)<br>` +
+    `<span class="a">■ only in ${a.name}: ${(an.novelA * 100).toFixed(0)}%</span><br>` +
+    `<span class="b">■ only in ${b.name}: ${(an.novelB * 100).toFixed(0)}%</span>` + warn;
+  $('comparePanel').classList.remove('show');   // reveal the map
+  renderCompare(view, a, b, an);
+  toast('tap the map to replay motions · COMPARE button returns to setup');
+};
+
+// re-render compare on resize/orientation change
+window.addEventListener('resize', () => {
+  if (state.mode === 'compare' && state.compare)
+    setTimeout(() => renderCompare(view, state.compare.a, state.compare.b, state.compare.an), 120);
+});
+
+/* ---------------- boot ---------------- */
+
+$('flipBtn').onclick = () => pose.flip().catch(e => toast(e.message));
+
+$('startBtn').onclick = async () => {
+  const bs = $('bootStatus'), be = $('bootErr');
+  be.textContent = '';
+  try {
+    bs.textContent = 'starting TensorFlow.js…';
+    await tf.setBackend('webgl').catch(() => tf.setBackend('cpu'));
+    await tf.ready();
+
+    bs.textContent = 'opening camera…';
+    await pose.openCamera();
+
+    await pose.initLandmarker((t) => bs.textContent = t);
+
+    bs.textContent = 'loading saved model…';
+    vae = await MotionVAE.load();
+    if (vae) proj = await Projector.load(vae.z);
+    if (vae && proj) {
+      state.modelReady = true;
+      state.modelId = +localStorage.getItem('motem_model_id') || Date.now();
+    }
+
+    try { await navigator.wakeLock.request('screen'); } catch (e) {}
+    pose.start();
+    $('curtain').style.display = 'none';
+    setMode(state.modelReady ? 'live' : 'calibrate');
+    if (!state.modelReady) toast('first run: record calibration data, then train');
+  } catch (e) {
+    bs.textContent = '';
+    be.textContent = 'Could not start: ' + e.message +
+      ' — camera needs https:// or localhost.';
+  }
+};
+</script>
+</body>
+</html>

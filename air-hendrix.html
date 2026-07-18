@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>AIR HENDRIX — play the sky</title>
+<link href="https://fonts.googleapis.com/css2?family=Monoton&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#120018;        /* stage-dark purple */
+    --haze:#c084fc;       /* purple haze */
+    --fire:#ff6d1f;       /* burning amp orange */
+    --cream:#ffeed6;      /* old poster cream */
+    --wire:#3d2554;       /* dim violet lines */
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:var(--ink);color:var(--cream);
+    font-family:'Space Grotesk',sans-serif}
+
+  /* ---------- stage ---------- */
+  #stage{position:fixed;inset:0}
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+    transform:scaleX(-1);filter:saturate(1.15) contrast(1.05)}
+  #overlay{position:absolute;inset:0;width:100%;height:100%}
+
+  /* ---------- HUD ---------- */
+  #hud{position:absolute;top:0;left:0;right:0;padding:14px 16px;display:flex;
+    justify-content:space-between;align-items:flex-start;pointer-events:none}
+  #brand{font-family:'Monoton',cursive;font-size:22px;letter-spacing:2px;
+    color:var(--haze);text-shadow:0 0 18px rgba(192,132,252,.8)}
+  #noteName{font-family:'Monoton',cursive;font-size:34px;color:var(--fire);
+    text-shadow:0 0 22px rgba(255,109,31,.9);min-width:70px;text-align:right;
+    transition:transform .08s}
+  #noteName.hit{transform:scale(1.25)}
+  #detect{margin-top:8px;font-size:12px;font-weight:500;color:var(--cream);
+    background:rgba(18,0,24,.65);border:1px solid var(--wire);border-radius:999px;
+    padding:5px 12px;display:inline-block;backdrop-filter:blur(4px)}
+  #detect.ok{border-color:var(--haze);color:var(--haze)}
+  #flipBtn{pointer-events:auto;font-family:'Space Grotesk',sans-serif;font-size:12px;
+    font-weight:500;color:var(--cream);background:rgba(18,0,24,.65);
+    border:1px solid var(--wire);border-radius:999px;padding:6px 13px;
+    backdrop-filter:blur(4px)}
+  #dbg{position:absolute;left:8px;right:8px;bottom:64px;max-height:34vh;
+    overflow-y:auto;font:11px/1.45 monospace;color:#9ff09f;
+    background:rgba(0,0,0,.72);border:1px solid var(--wire);border-radius:10px;
+    padding:8px 10px;white-space:pre-wrap;word-break:break-all;z-index:5;
+    display:none}
+  #dbg.show{display:block}
+  #dbg .err{color:#ff9c9c}
+  #dbgBtn{pointer-events:auto;font-size:13px;background:rgba(18,0,24,.65);
+    border:1px solid var(--wire);border-radius:999px;padding:5px 10px;
+    color:var(--cream)}
+  #muteBadge{display:none;font-size:11px;font-weight:700;letter-spacing:2px;
+    color:var(--ink);background:var(--fire);border-radius:6px;padding:3px 8px}
+  #muteBadge.on{display:inline-block}
+  #board{position:absolute;left:0;right:0;bottom:44px;display:flex;gap:8px;
+    justify-content:center;flex-wrap:wrap;padding:0 10px;z-index:4}
+  .pedal{font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:700;
+    letter-spacing:1px;color:var(--cream);background:rgba(18,0,24,.7);
+    border:1.5px solid var(--wire);border-radius:12px;padding:9px 13px;
+    backdrop-filter:blur(4px)}
+  .pedal.on{color:var(--ink);background:var(--fire);border-color:var(--fire);
+    box-shadow:0 0 16px rgba(255,109,31,.6)}
+  #voiceBtn{background:rgba(18,0,24,.7);color:var(--haze);
+    border-color:var(--haze);box-shadow:0 0 14px rgba(192,132,252,.35)}
+
+  #tips{position:absolute;bottom:14px;left:0;right:0;text-align:center;
+    font-size:12.5px;color:var(--cream);opacity:.85;pointer-events:none;
+    text-shadow:0 1px 4px #000;padding:0 20px;line-height:1.5}
+
+  /* ---------- start curtain ---------- */
+  #curtain{position:fixed;inset:0;background:
+    radial-gradient(120% 90% at 50% 110%, #35104f 0%, var(--ink) 55%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:26px;text-align:center;padding:28px;z-index:10}
+  #curtain h1{font-family:'Monoton',cursive;font-weight:400;font-size:
+    clamp(38px,11vw,72px);line-height:1.15;color:var(--haze);
+    text-shadow:0 0 30px rgba(192,132,252,.65)}
+  #curtain h1 span{color:var(--fire);text-shadow:0 0 30px rgba(255,109,31,.7)}
+  #curtain p{max-width:420px;font-size:15px;line-height:1.65;color:var(--cream)}
+  #curtain p b{color:var(--fire)}
+  #startBtn{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:18px;
+    letter-spacing:1px;color:var(--ink);background:var(--fire);border:none;
+    border-radius:999px;padding:18px 46px;cursor:pointer;
+    box-shadow:0 0 0 3px var(--ink),0 0 0 5px var(--fire),0 0 34px rgba(255,109,31,.55)}
+  #startBtn:active{transform:scale(.96)}
+  #status{font-size:13px;color:var(--haze);min-height:18px}
+  #err{font-size:13px;color:#ff8f8f;max-width:420px;line-height:1.5}
+  @media (prefers-reduced-motion:no-preference){
+    #curtain h1{animation:hum 3.2s ease-in-out infinite}
+    @keyframes hum{0%,100%{text-shadow:0 0 22px rgba(192,132,252,.5)}
+      50%{text-shadow:0 0 44px rgba(192,132,252,.95)}}
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="cam" playsinline muted autoplay></video>
+  <canvas id="overlay"></canvas>
+  <div id="hud">
+    <div>
+      <div id="brand">AIR<br>HENDRIX</div>
+      <div id="detect">👋 no hands yet</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <div id="noteName">—</div>
+      <div id="muteBadge">MUTE</div>
+      <button id="flipBtn">🔄 flip cam</button>
+      <button id="dbgBtn">🐞</button>
+    </div>
+  </div>
+  <div id="board">
+    <button class="pedal" id="voiceBtn">🎸 JIMI</button>
+    <button class="pedal on" data-pedal="fuzz">🔥 FUZZ</button>
+    <button class="pedal" data-pedal="delay">🌀 DELAY</button>
+    <button class="pedal" data-pedal="verb">🌊 REVERB</button>
+    <button class="pedal" data-pedal="chorus">💫 CHORUS</button>
+  </div>
+  <div id="tips">RIGHT: strum, or flick single fingers to pick (thumb=bass … pinky=high) + left↔right=tone • LEFT: height=note, side=wah, glide=bend, fist=mute</div>
+  <div id="dbg"></div>
+</div>
+
+<div id="curtain">
+  <h1>AIR<br><span>HENDRIX</span></h1>
+  <p>Point the camera at yourself, shred the air, and every move lands on the
+  <b>E&nbsp;minor pentatonic</b> — fuzz, wah and all. You literally cannot hit a wrong note.</p>
+  <button id="startBtn">PLUG IN</button>
+  <div id="status"></div>
+  <div id="err"></div>
+  <div style="font-size:11px;opacity:.5;letter-spacing:1px">BUILD v10</div>
+</div>
+
+<script type="module">
+import {FilesetResolver, HandLandmarker} from
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+/* ---------- on-screen debug console (crash-proof) ---------- */
+const BUILD='v10';
+window.dbg=function(msg,isErr){
+  try{
+    let el=document.getElementById('dbg');
+    if(!el){ el=document.createElement('div'); el.id='dbg';
+      document.body.appendChild(el); }
+    const line=document.createElement('div');
+    if(isErr) line.className='err';
+    line.textContent=new Date().toISOString().slice(11,19)+' '+msg;
+    el.appendChild(line);
+    while(el.childNodes.length>40) el.removeChild(el.firstChild);
+    el.scrollTop=el.scrollHeight;
+  }catch(e){}
+};
+const dbg=window.dbg;
+window.addEventListener('error',e=>dbg('JS ERROR: '+e.message+' @'+e.lineno,true));
+window.addEventListener('unhandledrejection',
+  e=>dbg('PROMISE ERROR: '+(e.reason&&e.reason.message||e.reason),true));
+dbg('build '+BUILD+' loaded, module imports OK');
+/* ================= AUDIO — the Hendrix rig ================= */
+let AC, master, fuzz, wah, verbSend;
+let fuzzGain, cleanGain, delayWet, delayFb, chorusWet, preGain;
+
+function buildRig(){
+  AC = new (window.AudioContext||window.webkitAudioContext)();
+
+  master = AC.createGain(); master.gain.value = 0.9;
+
+  // FUZZ — heavy asymmetric waveshaper
+  fuzz = AC.createWaveShaper();
+  const n = 2048, curve = new Float32Array(n), k = 60;
+  for (let i=0;i<n;i++){
+    const x = i*2/n - 1;
+    curve[i] = Math.tanh(k*x) * (x>0 ? 1 : 0.82);   // asymmetry = grit
+  }
+  fuzz.curve = curve; fuzz.oversample = '4x';
+
+  // WAH — resonant bandpass swept by fret-hand X
+  wah = AC.createBiquadFilter();
+  wah.type='bandpass'; wah.frequency.value=900; wah.Q.value=4;
+
+  // tone shaping after fuzz so it isn't pure buzz — swept by strum-hand X
+  const body = AC.createBiquadFilter();
+  body.type='lowpass'; body.frequency.value=3800;
+  buildRig.tone = body;
+
+  const comp = AC.createDynamicsCompressor();
+  comp.threshold.value=-18; comp.ratio.value=6;
+
+  preGain = AC.createGain(); preGain.gain.value = 2.2;
+
+  // drive stage: parallel FUZZ path and CLEAN bypass, crossfaded per pedal
+  fuzzGain  = AC.createGain(); fuzzGain.gain.value = 1;
+  cleanGain = AC.createGain(); cleanGain.gain.value = 0;
+  preGain.connect(fuzzGain);  fuzzGain.connect(fuzz); fuzz.connect(wah);
+  preGain.connect(cleanGain); cleanGain.connect(wah);
+  wah.connect(body);
+
+  // DRY
+  body.connect(comp);
+
+  // DELAY pedal — echoes that let old strums hang in the air
+  const delay = AC.createDelay(1.5); delay.delayTime.value=0.34;
+  delayFb = AC.createGain(); delayFb.gain.value=0.45;
+  delayWet = AC.createGain(); delayWet.gain.value=0;      // off by default
+  body.connect(delay); delay.connect(delayFb); delayFb.connect(delay);
+  delay.connect(delayWet); delayWet.connect(comp);
+
+  // CHORUS pedal — short modulated delay, watery shimmer
+  const chDelay=AC.createDelay(0.06); chDelay.delayTime.value=0.018;
+  const chLfo=AC.createOscillator(), chDepth=AC.createGain();
+  chLfo.frequency.value=0.8; chDepth.gain.value=0.006;
+  chLfo.connect(chDepth); chDepth.connect(chDelay.delayTime); chLfo.start();
+  chorusWet=AC.createGain(); chorusWet.gain.value=0;       // off by default
+  body.connect(chDelay); chDelay.connect(chorusWet); chorusWet.connect(comp);
+
+  // REVERB — spring-ish by default, hall when pedal engaged
+  const verb = AC.createConvolver();
+  verb.buffer = makeImpulse(1.6, 2.4);
+  buildRig.verb = verb;
+  verbSend = AC.createGain(); verbSend.gain.value = 0.28;
+  body.connect(verbSend); verbSend.connect(verb); verb.connect(comp);
+
+  comp.connect(master); master.connect(AC.destination);
+  buildRig.input = preGain;
+}
+
+function makeImpulse(seconds, decay){
+  const rate = AC.sampleRate, len = rate*seconds;
+  const buf = AC.createBuffer(2, len, rate);
+  for(let ch=0; ch<2; ch++){
+    const d = buf.getChannelData(ch);
+    for(let i=0;i<len;i++)
+      d[i]=(Math.random()*2-1)*Math.pow(1-i/len, decay);
+  }
+  return buf;
+}
+
+/* Karplus–Strong plucked string rendered into a buffer */
+function pluckBuffer(freq, seconds, damp){
+  const rate = AC.sampleRate;
+  const N = Math.max(2, Math.round(rate/freq));
+  const len = Math.floor(rate*seconds);
+  const buf = AC.createBuffer(1, len, rate);
+  const out = buf.getChannelData(0);
+  const dl = new Float32Array(N);
+  for(let i=0;i<N;i++) dl[i]=Math.random()*2-1;      // pick attack = noise burst
+  let idx=0;
+  for(let i=0;i<len;i++){
+    const next=(idx+1)%N;
+    dl[idx]=damp*0.5*(dl[idx]+dl[next]);             // lowpassed feedback
+    out[i]=dl[idx];
+    idx=next;
+  }
+  return buf;
+}
+
+/* E minor pentatonic across two-plus octaves (E3 up) */
+const SCALE=[];
+{
+  const root=164.81, steps=[0,3,5,7,10];             // E G A B D
+  const names=['E','G','A','B','D'];
+  for(let oct=0; oct<3; oct++)
+    for(let s=0;s<steps.length;s++){
+      SCALE.push({f:root*Math.pow(2,(steps[s]+12*oct)/12),
+                  n:names[s]+(3+oct)});
+    }
+  SCALE.length=12; // E3 … B5-ish, comfortable lead range
+}
+
+const bufferCache={};
+let activeNotes=[];        // {src, g, lfo, diving}
+
+/* ---------- AMP VOICES ---------- */
+const VOICES=[
+  {name:'JIMI',    drive:2.2, damp:0.996,  sec:2.2, fifth:true,  oct:0,
+   layers:[]},                                   // the classic fuzz machine
+  {name:'CLEAN',   drive:0.8, damp:0.9975, sec:3.5, fifth:false, oct:0,
+   layers:[]},                                   // glassy, rings forever
+  {name:'OCTAVIA', drive:3.0, damp:0.995,  sec:1.8, fifth:false, oct:0,
+   layers:[{oct:1,g:0.6}]},                      // screaming octave-up fuzz
+  {name:'BASS',    drive:1.5, damp:0.997,  sec:2.8, fifth:false, oct:-1,
+   layers:[{oct:-2,g:0.3}]},                     // subterranean
+];
+let voiceIdx=0;
+const pedals={fuzz:true, delay:false, verb:false, chorus:false};
+
+function applyRigSettings(){
+  if(!AC) return;
+  const v=VOICES[voiceIdx], t=AC.currentTime;
+  preGain.gain.setTargetAtTime(v.drive,t,0.02);
+  const wantFuzz=pedals.fuzz;
+  fuzzGain.gain.setTargetAtTime(wantFuzz?1:0,t,0.02);
+  cleanGain.gain.setTargetAtTime(wantFuzz?0:1,t,0.02);
+  delayWet.gain.setTargetAtTime(pedals.delay?0.5:0,t,0.05);
+  delayFb.gain.setTargetAtTime(pedals.delay?0.5:0.0,t,0.05);
+  chorusWet.gain.setTargetAtTime(pedals.chorus?0.7:0,t,0.05);
+  verbSend.gain.setTargetAtTime(pedals.verb?0.65:0.28,t,0.05);
+  if(applyRigSettings.lastHall!==pedals.verb){
+    buildRig.verb.buffer=makeImpulse(pedals.verb?3.2:1.6, pedals.verb?1.8:2.4);
+    applyRigSettings.lastHall=pedals.verb;
+  }
+}
+
+function getBuf(freq, mute){
+  const v=VOICES[voiceIdx];
+  const damp=mute?0.962:v.damp, sec=mute?0.7:v.sec;
+  const key=Math.round(freq)+'-'+damp+'-'+sec;
+  if(!bufferCache[key]) bufferCache[key]=pluckBuffer(freq,sec,damp);
+  return bufferCache[key];
+}
+
+function spawn(freq, gainVal, mute){
+  if(freq<28 || freq>4200) return null;
+  const src=AC.createBufferSource();
+  src.buffer=getBuf(freq,mute);
+  const g=AC.createGain(); g.gain.value=gainVal;
+  let lfo=null;
+  if(!mute){ // vibrato only on ringing notes
+    lfo=AC.createOscillator(); const lg=AC.createGain();
+    lfo.frequency.value=5.4; lg.gain.value=0.012;
+    lfo.connect(lg); lg.connect(src.playbackRate); lfo.start();
+  }
+  src.connect(g); g.connect(buildRig.input);
+  src.start(); src.stop(AC.currentTime+(mute?0.8:VOICES[voiceIdx].sec+0.2));
+  const note={src,g,lfo,diving:false};
+  src.onended=()=>{ if(lfo)lfo.stop();
+    activeNotes=activeNotes.filter(n=>n!==note); };
+  activeNotes.push(note);
+  return note;
+}
+
+function playNote(i, vel, mute){
+  const idx=Math.max(0,Math.min(SCALE.length-1,i));
+  const note=SCALE[idx], v=VOICES[voiceIdx];
+  // velocity → loudness AND grit: hotter signal drives the fuzz harder
+  const gv=Math.min(1.3, 0.18+vel*1.5);
+  const base=note.f*Math.pow(2,v.oct);
+  spawn(base, gv, mute);
+  v.layers.forEach(L=>spawn(note.f*Math.pow(2,L.oct), gv*L.g, mute));
+  if(v.fifth && idx>=2)
+    spawn(SCALE[idx-2].f*Math.pow(2,v.oct), gv*0.42, mute); // low fifth
+  return note.n;
+}
+
+/* choke everything (fist closes) */
+function chokeAll(){
+  const t=AC.currentTime;
+  activeNotes.forEach(n=>{
+    n.g.gain.cancelScheduledValues(t);
+    n.g.gain.setValueAtTime(n.g.gain.value,t);
+    n.g.gain.exponentialRampToValueAtTime(0.001,t+0.06);
+  });
+}
+
+/* whammy bend: semitones, applied to all ringing notes */
+function bendActive(semis){
+  const rate=Math.pow(2,semis/12), t=AC.currentTime;
+  activeNotes.forEach(n=>{
+    if(n.diving) return;
+    n.src.playbackRate.setTargetAtTime(rate,t,0.03);
+  });
+}
+
+function diveBomb(){
+  const t=AC.currentTime;
+  activeNotes.forEach(n=>{
+    n.diving=true;
+    try{
+      n.src.playbackRate.cancelScheduledValues(t);
+      n.src.playbackRate.setValueAtTime(n.src.playbackRate.value,t);
+      n.src.playbackRate.exponentialRampToValueAtTime(0.45,t+0.9);
+    }catch(e){}
+  });
+}
+
+/* ================= VISION — hands from the camera ================= */
+const cam=document.getElementById('cam');
+const canvas=document.getElementById('overlay');
+const ctx=canvas.getContext('2d');
+const noteEl=document.getElementById('noteName');
+const detectEl=document.getElementById('detect');
+
+let mirror=true;                 // front cam = mirrored view
+const dx=x=>mirror?1-x:x;        // landmark x -> on-screen x
+
+const STRUM_Y=0.62;           // string line (normalized)
+let fret={x:0.5,y:0.5,seen:0};
+let strum={y:0.5,prevY:0.5,vel:0,seen:0,lastHit:0};
+let currentNoteIdx=6, ripple=0;
+let muted=false, bendRefY=null;
+let fingers={}, sparks=[], lastFingerHit=0;
+const muteBadge=document.getElementById('muteBadge');
+
+/* hand openness: fingertip spread vs palm size → fist detection */
+function openness(h){
+  const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+  const palm=d(h[0],h[9])||1e-4;
+  const tips=(d(h[8],h[0])+d(h[12],h[0])+d(h[16],h[0])+d(h[20],h[0]))/4;
+  return tips/palm;
+}
+
+function onResults(res){
+  const hands=res.multiHandLandmarks||[];
+  const now=performance.now();
+
+  // detection feedback
+  detectEl.textContent = hands.length===0 ? '👋 no hands yet'
+    : hands.length===1 ? '✋ 1 hand tracked' : '🙌 2 hands tracked';
+  detectEl.classList.toggle('ok', hands.length>0);
+
+  // assign hands by on-screen side: left half = fret hand, right half = strum hand
+  let fretH=null, strumH=null;
+  if(hands.length===1){ fretH=strumH=hands[0]; }
+  else if(hands.length>=2){
+    const a=hands[0], b=hands[1];
+    if(dx(a[0].x)<dx(b[0].x)){ fretH=a; strumH=b; } else { fretH=b; strumH=a; }
+  }
+
+  if(fretH){
+    const w=fretH[0];
+    fret.x=dx(w.x); fret.y=w.y; fret.seen=now;
+    // note from height: top = high note
+    currentNoteIdx=Math.round((1-fret.y)*(SCALE.length-1));
+    // wah from horizontal position
+    if(wah) wah.frequency.setTargetAtTime(350+fret.x*2300, AC.currentTime, 0.05);
+
+    // palm mute: fist closes (with hysteresis so it doesn't flicker)
+    const op=openness(fretH);
+    if(!muted && op<1.05){ muted=true; chokeAll(); }
+    else if(muted && op>1.25){ muted=false; }
+    muteBadge.classList.toggle('on',muted);
+
+    // whammy: after a strum, vertical fret-hand travel bends ringing notes
+    if(bendRefY!==null && activeNotes.length){
+      const semis=(bendRefY-fret.y)*7;          // full screen ≈ 7 semitones
+      bendActive(Math.max(-4,Math.min(4,semis)));
+    }
+  }
+
+  if(strumH){
+    // fingertips move faster than the wrist → much better sensitivity
+    const tip=strumH[12];
+    strum.prevY=strum.y; strum.y=tip.y; strum.seen=now;
+    strum.vel=strum.y-strum.prevY;                    // + = moving down
+
+    // strum-hand X sweeps the tone: left=warm neck pickup, right=biting bridge
+    if(buildRig.tone)
+      buildRig.tone.frequency.setTargetAtTime(
+        1400+dx(strumH[0].x)*4600, AC.currentTime, 0.06);
+
+    /* ---- FINGERPICKING: per-finger flicks, measured relative to the wrist
+       so whole-arm strums don't false-trigger. Each finger = its own note:
+       thumb=bass(-2 steps), index=0, middle=+1, ring=+2, pinky=+3 ---- */
+    const wristY=strumH[0].y;
+    const FING=[[4,-2],[8,0],[12,1],[16,2],[20,3]];
+    FING.forEach(([id,off])=>{
+      const rel=strumH[id].y-wristY;
+      const st=fingers[id]||(fingers[id]={rel,last:0});
+      const rvel=rel-st.rel; st.rel=rel;
+      if(rvel>0.011 && now-st.last>130 && now-strum.lastHit>70){
+        st.last=now; lastFingerHit=now;
+        const v=Math.min(1,rvel*40);
+        const name=playNote(currentNoteIdx+off, v*0.85, muted);
+        bendRefY=fret.seen>now-500 ? fret.y : null;
+        noteEl.textContent=name+(muted?'·':'');
+        sparks.push({x:dx(strumH[id].x),y:strumH[id].y,t:now});
+        ripple=Math.max(ripple,0.25+v*0.3);
+      }
+    });
+
+    const down=strum.prevY< STRUM_Y && strum.y>=STRUM_Y && strum.vel> 0.007;
+    const up  =strum.prevY>=STRUM_Y && strum.y< STRUM_Y && strum.vel<-0.007;
+    if((down||up) && now-strum.lastHit>90 && now-lastFingerHit>70){
+      strum.lastHit=now;
+      const v=Math.min(1,Math.abs(strum.vel)*26);     // speed → volume + grit
+      const name=playNote(currentNoteIdx, up?v*0.8:v, muted);
+      bendRefY=fret.seen>now-500 ? fret.y : null;     // arm the whammy
+      noteEl.textContent=name+(muted?'·':'');
+      noteEl.classList.add('hit');
+      setTimeout(()=>noteEl.classList.remove('hit'),90);
+      ripple=Math.min(1,0.4+v*0.6);
+      if(down && strum.vel>0.085) diveBomb();         // slam = dive bomb
+    }
+  }
+  draw(hands,now);
+}
+
+function draw(hands,now){
+  const W=canvas.width=canvas.clientWidth*devicePixelRatio;
+  const H=canvas.height=canvas.clientHeight*devicePixelRatio;
+  ctx.clearRect(0,0,W,H);
+
+  // string line — ripples when struck
+  ripple*=0.9;
+  ctx.save();
+  ctx.strokeStyle=`rgba(255,109,31,${0.55+ripple*0.45})`;
+  ctx.lineWidth=(2+ripple*6)*devicePixelRatio;
+  ctx.shadowColor='#ff6d1f'; ctx.shadowBlur=18*ripple*devicePixelRatio;
+  ctx.beginPath();
+  const amp=ripple*14*devicePixelRatio;
+  for(let x=0;x<=W;x+=12){
+    const y=H*STRUM_Y+Math.sin(x/34+now/40)*amp;
+    x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  }
+  ctx.stroke(); ctx.restore();
+
+  // fret ladder on left edge — the "neck"
+  const lanes=SCALE.length, lx=10*devicePixelRatio, lw=8*devicePixelRatio;
+  for(let i=0;i<lanes;i++){
+    const y=H*(1-(i/(lanes-1)))*0.92+H*0.04;
+    const on=i===currentNoteIdx && now-fret.seen<300;
+    ctx.fillStyle=on?'#c084fc':'rgba(61,37,84,.8)';
+    ctx.shadowColor='#c084fc'; ctx.shadowBlur=on?16*devicePixelRatio:0;
+    ctx.beginPath();
+    ctx.roundRect(lx,y-3*devicePixelRatio,lw*(on?2.4:1),6*devicePixelRatio,4);
+    ctx.fill();
+  }
+  ctx.shadowBlur=0;
+
+  // fingertip pluck sparks
+  sparks=sparks.filter(s=>now-s.t<300);
+  sparks.forEach(s=>{
+    const a=1-(now-s.t)/300, r=(8+30*(1-a))*devicePixelRatio;
+    ctx.strokeStyle=`rgba(255,109,31,${a})`;
+    ctx.lineWidth=2.5*devicePixelRatio;
+    ctx.beginPath(); ctx.arc(s.x*W,s.y*H,r,0,7); ctx.stroke();
+  });
+
+  // hand skeletons — so you can SEE what's tracked
+  const CONN=(window.HAND_CONNECTIONS)||[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],
+    [6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],[0,17]];
+  hands.forEach(h=>{
+    // palm glow
+    const px=dx(h[9].x)*W, py=h[9].y*H;
+    const grad=ctx.createRadialGradient(px,py,0,px,py,46*devicePixelRatio);
+    grad.addColorStop(0,'rgba(192,132,252,.35)');
+    grad.addColorStop(1,'rgba(192,132,252,0)');
+    ctx.fillStyle=grad;
+    ctx.beginPath(); ctx.arc(px,py,46*devicePixelRatio,0,7); ctx.fill();
+    // bones
+    ctx.strokeStyle='rgba(255,238,214,.85)';
+    ctx.lineWidth=2*devicePixelRatio;
+    ctx.beginPath();
+    CONN.forEach(([a,b])=>{
+      ctx.moveTo(dx(h[a].x)*W,h[a].y*H);
+      ctx.lineTo(dx(h[b].x)*W,h[b].y*H);
+    });
+    ctx.stroke();
+    // joints
+    ctx.fillStyle='#c084fc';
+    h.forEach(p=>{
+      ctx.beginPath();
+      ctx.arc(dx(p.x)*W,p.y*H,3.2*devicePixelRatio,0,7);
+      ctx.fill();
+    });
+  });
+}
+
+/* ================= BOOT ================= */
+const startBtn=document.getElementById('startBtn');
+const statusEl=document.getElementById('status');
+const errEl=document.getElementById('err');
+
+let facing='user', currentStream=null;
+
+async function openCamera(){
+  if(currentStream) currentStream.getTracks().forEach(t=>t.stop());
+  currentStream=await navigator.mediaDevices.getUserMedia({
+    video:{facingMode:facing,width:{ideal:1280},height:{ideal:720}},audio:false});
+  // zoom all the way OUT if the device exposes a zoom control
+  const track=currentStream.getVideoTracks()[0];
+  try{
+    const caps=track.getCapabilities?track.getCapabilities():{};
+    if(caps.zoom) await track.applyConstraints({advanced:[{zoom:caps.zoom.min}]});
+  }catch(e){/* zoom not supported on this device — ignore */}
+  track.onended=()=>{ openCamera().catch(()=>{}); };   // auto-recover
+  cam.srcObject=currentStream;
+  mirror=(facing==='user');
+  cam.style.transform=mirror?'scaleX(-1)':'none';
+  await cam.play();
+}
+
+// if the tab/app is backgrounded and comes back, kick the video again
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden && cam.srcObject) cam.play().catch(()=>{});
+});
+
+document.getElementById('flipBtn').onclick=async()=>{
+  facing=(facing==='user')?'environment':'user';
+  try{ await openCamera(); }
+  catch(e){ facing=(facing==='user')?'environment':'user'; await openCamera(); }
+};
+
+document.getElementById('dbgBtn').onclick=()=>{
+  document.getElementById('dbg').classList.toggle('show');
+};
+
+/* pedalboard wiring */
+document.querySelectorAll('.pedal[data-pedal]').forEach(btn=>{
+  btn.onclick=()=>{
+    const p=btn.dataset.pedal;
+    pedals[p]=!pedals[p];
+    btn.classList.toggle('on',pedals[p]);
+    applyRigSettings();
+  };
+});
+document.getElementById('voiceBtn').onclick=()=>{
+  voiceIdx=(voiceIdx+1)%VOICES.length;
+  document.getElementById('voiceBtn').textContent='🎸 '+VOICES[voiceIdx].name;
+  applyRigSettings();
+};
+
+startBtn.onclick=async()=>{
+  errEl.textContent='';
+  try{
+    statusEl.textContent='Warming up the amp…';
+    buildRig();
+    applyRigSettings();
+    playNote(0,0.001,false);      // silent-ish warm pluck to unlock audio
+
+    statusEl.textContent='Asking for the camera…';
+    await openCamera();
+
+    statusEl.textContent='Loading hand tracking…';
+    dbg('fetching WASM runtime…');
+    const vision=await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    dbg('WASM runtime OK, loading model…');
+    const MODEL="https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+    async function createLandmarker(delegate){
+      const lm=await HandLandmarker.createFromOptions(vision,{
+        baseOptions:{modelAssetPath:MODEL,delegate},
+        runningMode:"VIDEO",numHands:2,
+        minHandDetectionConfidence:0.3,minTrackingConfidence:0.3});
+      dbg('model ready, delegate='+delegate);
+      return lm;
+    }
+    let delegate='GPU', landmarker;
+    try{ landmarker=await createLandmarker('GPU'); }
+    catch(e){
+      dbg('GPU init failed ('+e.message+'), using CPU',true);
+      delegate='CPU';
+      landmarker=await createLandmarker('CPU');
+    }
+
+    // keep the screen from sleeping (screen-off kills camera + audio)
+    try{ await navigator.wakeLock.request('screen'); }catch(e){}
+
+    // synchronous detection loop at ~30fps — no async deadlocks possible
+    let lastFrame=0, lastVideoTime=-1, loggedErr=false, switching=false;
+    let frames=0, hits=0, statT=performance.now();
+    let totalFrames=0, totalHits=0;
+    function loop(t){
+      requestAnimationFrame(loop);
+      if(t-lastFrame<33 || switching) return;
+      lastFrame=t;
+      if(cam.readyState<2) return;
+      if(cam.currentTime===lastVideoTime) return;  // no new frame yet
+      lastVideoTime=cam.currentTime;
+      try{
+        const res=landmarker.detectForVideo(cam, performance.now());
+        frames++; totalFrames++;
+        if((res.landmarks||[]).length>0){ hits++; totalHits++; }
+        onResults({multiHandLandmarks:res.landmarks||[]});
+      }catch(e){
+        if(!loggedErr){ dbg('detect ERROR: '+e.message,true); loggedErr=true; }
+      }
+      // GPU "works" but never sees hands → known silent-failure, go CPU
+      if(delegate==='GPU' && totalFrames>90 && totalHits===0 && !switching){
+        switching=true;
+        dbg('GPU returns 0 detections — switching to CPU…',true);
+        createLandmarker('CPU').then(lm=>{
+          landmarker.close(); landmarker=lm; delegate='CPU';
+          totalFrames=0; switching=false;
+        }).catch(e=>{ dbg('CPU switch failed: '+e.message,true); switching=false; });
+      }
+      if(performance.now()-statT>2000){
+        dbg('2s stats ['+delegate+']: '+frames+' frames, '+hits+' with hands, video '+
+            cam.videoWidth+'x'+cam.videoHeight);
+        frames=0; hits=0; statT=performance.now();
+      }
+      // camera track died? reopen it
+      if(currentStream &&
+         currentStream.getVideoTracks()[0].readyState==='ended')
+        openCamera().catch(()=>{});
+    }
+    requestAnimationFrame(loop);
+    dbg('detection loop started');
+
+    document.getElementById('curtain').style.display='none';
+  }catch(e){
+    statusEl.textContent='';
+    errEl.textContent='Could not start: '+e.message+
+      ' — check that camera permission is allowed and you are on https:// or a local file.';
+  }
+};
+</script>
+</body>
+</html>
